@@ -17,6 +17,7 @@ CC_STATUS = 176
 class ModeBase():
     def __init__(self, apc):
         self.apc = apc
+        self.shiftPressed = False
         self.rowStarts = [56, 48, 40, 32, 24, 16, 8, 0]
         self.letters = {
 
@@ -42,11 +43,11 @@ class ModeBase():
             ],
             "bar":[
                 [1, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 0, 0, 0, 0, 0],
-                [1, 0, 1, 0, 5, 0, 1, 1],
+                [1, 0, 0, 0, 0, 0, 1, 1],
+                [1, 1, 1, 0, 0, 0, 1, 0],
+                [1, 0, 1, 0, 5, 0, 1, 0],
                 [1, 1, 1, 5, 0, 5, 1, 0],
-                [0, 0, 0, 5, 5, 5, 1, 0],
+                [0, 0, 0, 5, 5, 5, 0, 0],
                 [0, 0, 0, 5, 0, 5, 0, 0],
                 [0, 0, 0, 0, 0, 0, 0, 0]
             ],
@@ -57,7 +58,7 @@ class ModeBase():
                 [1, 0, 1, 5, 5, 5, 0, 0],
                 [1, 1, 1, 5, 0, 1, 0, 1],
                 [0, 0, 0, 5, 0, 1, 1, 1],
-                [0, 0, 0, 0, 0, 1, 1, 1],
+                [0, 0, 0, 0, 0, 1, 0, 1],
                 [0, 0, 0, 0, 0, 1, 0, 1]
             ],
             "tap":[
@@ -83,7 +84,7 @@ class ModeBase():
             "metronome": [
                 [1, 0, 1, 0, 0, 1, 1, 1],
                 [1, 1, 1, 0, 0, 0, 1, 0],
-                [1, 1, 1, 5, 5, 0, 1, 0],
+                [1, 0, 1, 5, 5, 0, 1, 0],
                 [1, 0, 1, 5, 0, 0, 1, 0],
                 [0, 0, 0, 5, 5, 0, 0, 0],
                 [0, 0, 0, 5, 0, 0, 0, 0],
@@ -134,11 +135,11 @@ class ModeBase():
                 [0, 0, 0, 0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 1, 0, 0, 0, 0, 0],
                 [1, 1, 1, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0, 0, 0, 0]
+                [0, 0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0]
             ],
             "small5":[
                 [0, 0, 0, 0, 0, 0, 0, 0],
@@ -221,6 +222,7 @@ class ModeBase():
                 [0, 0, 0, 0, 0, 1, 0, 0]
             ]
         }
+
     def custom_receive_midi(self, midi_bytes):
         return True
 
@@ -328,21 +330,54 @@ class ShiftedMenuMode(ModeBase):
             self.apc.really_do_send_midi((NOTE_ON_STATUS, 66, 0))
 
     def custom_receive_midi(self, midi_bytes):
-        if midi_bytes[0] & 240 == NOTE_ON_STATUS:
+        if midi_bytes[0] & 240 == NOTE_OFF_STATUS:
             note = midi_bytes[1]
-            if note == 65 :
+            if note == SHIFT_KEY:
+                self.shiftPressed = False
+                self.syncLights()
+                return
+
+            # self.apc.show_message("{} released".format(note))
+
+        if midi_bytes[0] & 240 == NOTE_ON_STATUS:
+            song = self.apc.song()
+
+            note = midi_bytes[1]
+            if note == SHIFT_KEY:
+                self.shiftPressed = True
+                self.apc._refresh_displays()
+                self.apc.show_message("Shift + row 1-8 = duplicate scene, column 1-8 = duplicate track")
+                return
+
+            # self.apc.show_message("{} pressed".format(note))
+
+            if note >= 82 and note <= 89 and self.shiftPressed:
+                clipIndex = self.apc.getClipIndex(note - 82)
+
+                song.duplicate_scene(clipIndex)
+                self.apc.show_message("duplicate_scene")
+                return
+
+            if note >= 64 and note <= 71 and self.shiftPressed:
+                trackIndex = self.apc.getTrackIndex(note - 64)
+
+                song.duplicate_track(trackIndex)
+                self.apc.show_message("duplicate_track")
+                return
+
+            if note == 65:
                 self.exitMode()
                 return
-            if note == 64 :
+            if note == 64:
                 self.apc.mode=self.modes[self.modeNum]
                 self.apc.mode.syncLights()
                 return
-            if note == 66 :
+            if note == 66:
                 self.modeNum =self.modeNum-1
                 if self.modeNum < 0 :
                     self.modeNum = 0
                 self.syncLights()
-            if note == 67 :
+            if note == 67:
                 self.modeNum =self.modeNum+1
                 if self.modeNum >= len(self.modes):
                     self.modeNum = len(self.modes) -1
@@ -420,10 +455,10 @@ class RecordBarsMode(ModeBase):
             if note == 65:
                 self.gotoRootMenu()
             if note == 67:
-                self.apc.set_fixed_record_bar_length ( self.apc.fixed_record_bar_length() +1)
+                self.apc.set_fixed_record_bar_length ( self.apc.fixed_record_bar_length() + 1)
                 self.syncLights()
-            if note == 66 and self.apc.fixed_record_bar_length()>1:
-                self.apc.set_fixed_record_bar_length ( self.apc.fixed_record_bar_length() -1)
+            if note == 66 and self.apc.fixed_record_bar_length() >= 1:
+                self.apc.set_fixed_record_bar_length ( self.apc.fixed_record_bar_length() - 1)
                 self.syncLights()
         return False
 
@@ -539,10 +574,10 @@ class MH_APC_mini(APC_mini):
 
 
     def getTrackIndex(self, note):
-        return int(note % 8)
+        return int(note % 8) + self._session.track_offset()
 
     def getClipIndex(self, note):
-        return 7 - int((note - self.getTrackIndex(note)) / 8)
+        return 7 - int((note - self.getTrackIndex(note)) / 8) + self._session.scene_offset()
 
 
     def _do_send_midi(self, midi_bytes):
@@ -595,25 +630,30 @@ class MH_APC_mini(APC_mini):
                     fromTrack = song.tracks[fromTrackIndex]
                     fromClipIndex = self.getClipIndex(firstNote)
                     # self.log_message("armed="+str(track.arm)+" tr="+str(trackIndex)+" clip="+str(clipIndex))
-                    fromClip = fromTrack.clip_slots[fromClipIndex].clip
+                    fromClipSlot = fromTrack.clip_slots[fromClipIndex]
+                    fromClip = fromClipSlot.clip
+
                     if fromClip is not None:
                         if lastNote <0:
                             # Delete first clip
-                            fromTrack.clip_slots[fromClipIndex].delete_clip()
+                            fromClipSlot.delete_clip()
                         else:
                             # Copy first clicked clip to last (BUT THIS ERRORS!!! HOW TO DO PROGRAMATICALLY??
-                            fromTrack.duplicate_clip_slot(fromClipIndex)
-                            # toTrackIndex = self.getTrackIndex(lastNote)
-                            # toTrack = song.tracks[toTrackIndex]
-                            # toClipIndex = self.getClipIndex(lastNote)
+                            # fromTrack.duplicate_clip_slot(fromClipIndex)
+
+                            toTrackIndex = self.getTrackIndex(lastNote)
+                            toTrack = song.tracks[toTrackIndex]
+                            toClipIndex = self.getClipIndex(lastNote)
                             # toTrack.clip_slots[toClipIndex]=fromClip
 
+                            toTrackSlot = toTrack.clip_slots[toClipIndex]
+                            fromClipSlot.duplicate_clip_to(toTrackSlot)
 
         if midi_bytes[0] & 240 == NOTE_ON_STATUS:
             note = midi_bytes[1]
             if note == SHIFT_KEY:
                 self.shiftPressed = True
-                self.show_message("Shift + row 6 = menu, row 7= undo")
+                self.show_message("Shift + row 6 = metronome, row 7= undo")
             else:
                 self.lastNote = note
                 # self.log_message("MIDI!" + str(note))
@@ -639,21 +679,30 @@ class MH_APC_mini(APC_mini):
                 # self.log_message("armed="+str(track.arm)+" tr="+str(trackIndex)+" clip="+str(clipIndex))
                 clip = track.clip_slots[clipIndex].clip
                 if clip is None:
-                    for t in range(len(song.tracks)):
-                        track = song.tracks[t]
-                        track.arm = (t == trackIndex)
-                    # track.arm = True
-                    # Start recording
                     bars = self.fixed_record_bar_length()
-                    if bars == 0:
-                        bars = 4
-                    beatsPerBar = int(song.signature_numerator)
-                    beats = bars * beatsPerBar
+                    if bars > 0:
+                        prev_armed = {}
+                        for t in range(len(song.tracks)):
+                            track = song.tracks[t]
+                            prev_armed[t] = track.arm or (t == trackIndex)
+                            track.arm = (t == trackIndex)
+                            # track.arm = True
 
-                    song.trigger_session_record(beats)  # MH
-                    # self.log_message("Starting record")
-                    # self.log_message("clip:"+str(7-int(note/8))+"-"+str(int(note%8))+" "+str(clip))
-                    return
+                        # Start recording
+                        beatsPerBar = int(song.signature_numerator)
+                        beats = bars * beatsPerBar
+
+                        song.view.selected_scene = song.scenes[clipIndex]
+                        song.trigger_session_record(beats)  # MH
+                        # self.log_message("Starting record")
+                        # self.log_message("clip:"+str(7-int(note/8))+"-"+str(int(note%8))+" "+str(clip))
+
+                        for t in range(len(song.tracks)):
+                            track = song.tracks[t]
+                            track.arm = prev_armed[t]
+                            # return armed states
+
+                        return
         # Don't seem to get any CC messages but Live intercepts them somehow
         # elif midi_bytes[0] & 240 == CC_STATUS:
         #     cc_no = midi_bytes[1]
